@@ -19,7 +19,8 @@ import logging
 from datetime import time
 
 import anthropic
-from telegram.ext import ApplicationBuilder, ContextTypes
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # ── Логирование ───────────────────────────────────────────────────────────────
 
@@ -154,10 +155,34 @@ async def send_daily_report(context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
+# ── Команды ───────────────────────────────────────────────────────────────────
+
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "👋 Привет! Я отслеживаю BTC и XAUT.\n\n"
+        "📊 Каждый день в 10:00 МСК ты получаешь отчёт автоматически.\n\n"
+        "Команды:\n"
+        "/report — получить отчёт прямо сейчас"
+    )
+
+async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    status = await update.message.reply_text("⏳ Собираю данные по BTC и XAUT... (10-30 сек)")
+    try:
+        report = await asyncio.get_event_loop().run_in_executor(None, generate_report)
+        await status.delete()
+        for i in range(0, len(report), 4096):
+            await update.message.reply_text(report[i:i+4096], parse_mode="Markdown")
+    except Exception as e:
+        await status.edit_text(f"❌ Ошибка:\n{e}")
+
+
 # ── Запуск ────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("report", cmd_report))
 
     # Планировщик: каждый день в 07:00 UTC (= 10:00 МСК)
     app.job_queue.run_daily(
